@@ -14,6 +14,15 @@ client_engine = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 class AD_Drone:
     
+    def comprobarLRC(msg):
+        lrc = 0
+        for i in range(len(msg)):
+            lrc = lrc ^ ord(msg[i])
+            
+        print ("MSG: ", msg)
+        print ("LRC: ", lrc)
+        return lrc
+    
     def procesarArgumentos():
         if (len(sys.argv) == 7):
             Server_Registry  = sys.argv[1]
@@ -60,6 +69,19 @@ class AD_Drone:
         token = self.readRegister()
         
         print("Token recibido: ", token)
+        token = token.split(ETX)
+        lrc = token[1]
+        token = token[0].split(STX)
+            
+        print("MSG: ", token[1])
+        print("LRC: ", ord(lrc))
+        
+        if (self.comprobarLRC(token[1]) == ord(lrc)):
+            print("LRC correcto")   
+        else:
+            print("LRC incorrecto")
+            sys.exit()
+        
         
     
     def main(self):

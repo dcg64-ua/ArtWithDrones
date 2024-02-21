@@ -18,11 +18,22 @@ MAX_CONEXIONES = 10100
 class AD_Registry:
     
     alias = "" ## puede que se tenga que eliminar (gestiona varios drones simultaneamente y esto lia)
-    Server_BD = ""
-    Port_BD = 0
+    Server_BD = "localhost"
+    Port_BD = 3306
     myid = 0 #lo mismo que con alias
     
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    def calculate_lrc(data):
+        lrc = 0
+        for i in range(len(data)):
+            lrc = lrc ^ ord(data[i])
+        return lrc
+    
+    def package_message(self, data):
+        lrc = self.calculate_lrc(data)
+        print("LRC: ", lrc)
+        return STX + data + ETX + chr(lrc)
     
     def registrarDrone(self, conexion, conn_drone, alias):
         token = self.generar_token()
@@ -42,6 +53,7 @@ class AD_Registry:
         id = cursor.fetchone()[0]
         
         msg = str(id) + "." + token
+        msg = self.package_message(self, msg)
         conn_drone.send(msg.encode(FORMAT))
         print("Drone registrado correctamente")
         print("ID: ", id)
@@ -125,10 +137,19 @@ class AD_Registry:
                 print("LRC correcto")
             else:
                 print("LRC incorrecto")
+                connected = False
                 break
             
+            opcion = msg[1].split(".")[0]
+            print("Opcion: ", opcion)
             
-               
+            if (msg[1] == FIN):
+                connected = False
+                break
+            elif (opcion == "1" or opcion == "2" or opcion == "3"):
+                self.dataBase(self, msg[1], conn) 
+                connected = False #Esto no se si hace falta pero es para salir del bucle por ahora.
+                         
         print("ADIOS.")
         conn.close()
         
