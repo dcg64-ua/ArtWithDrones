@@ -1,5 +1,6 @@
 import socket
 import sys
+import time
 
 HEADER = 64
 PORT = 5050
@@ -53,35 +54,120 @@ class AD_Drone:
     
     def sendRegister(msg):
         client_registry.send(msg.encode(FORMAT))
-        print("Mensaje enviado al servidor de registro")
+        print("Mensaje enviado al servidor de registro: ", msg)
         
     def readRegister():
         msg = client_registry.recv(2048).decode(FORMAT)
-        print("Mensaje recibido del servidor de registro")
+        print("Mensaje recibido del servidor de registro:", msg)
         return msg
         
+    def sendEngine(msg):
+        client_engine.send(msg.encode(FORMAT))
+        print("Mensaje enviado al servidor de Engine: ", msg)
+        
+    def readEngine():
+        msg = client_engine.recv(2048).decode(FORMAT)
+        print("Mensaje recibido del servidor de Engine", msg)
+        return msg
+    
     def registrarDrone(self):
-        alias = "Drone"
-        print("Envio al servidor el alias: ", alias)
-        msg = "1." + alias
-        msg = self.package_message(self, msg)
-        self.sendRegister(msg)
-        token = self.readRegister()
         
-        print("Token recibido: ", token)
-        token = token.split(ETX)
-        lrc = token[1]
-        token = token[0].split(STX)
+        print("Solicitud de inicio de comunicación")
+        sol = "<SOLICITUD>"
+        self.sendRegister(sol)
+        
+        while ((msg := self.readRegister()) == ""):
+            pass
+        
+        if (msg == "OK"):
+
+            alias = input("Introduce el alias del drone: ")
+            print("Envio al servidor el alias: ", alias)
             
-        print("MSG: ", token[1])
-        print("LRC: ", ord(lrc))
-        
-        if (self.comprobarLRC(token[1]) == ord(lrc)):
-            print("LRC correcto")   
-        else:
-            print("LRC incorrecto")
+            if (alias == "FIN"):
+                msg = self.package_message(self, FIN)
+                self.sendRegister(msg)
+                sys.exit()
+            else: 
+                msg = "1." + alias
+                msg = self.package_message(self, msg)
+                self.sendRegister(msg)
+            
+            while ((msg := self.readRegister()) == ""):
+                pass
+            
+            if (msg == "OK"):
+                
+                while ((msg := self.readRegister()) == ""):
+                    pass
+                
+                self.token = msg
+                
+                print("Token recibido: ", self.token)
+                self.token = self.token.split(ETX)
+                lrc = self.token[1]
+                self.token = self.token[0].split(STX)
+                self.token = self.token[1]
+                
+                if (self.comprobarLRC(self.token) == ord(lrc)):
+                    print("LRC correcto")
+                    self.sendRegister("OK")   
+                    self.sendRegister("EOT")  
+                else:
+                    print("LRC incorrecto")
+                    self.sendRegister("DENIED")
+                    sys.exit()
+            
+            elif (msg == "DENIED"):
+                print("El servidor de registro no ha recibido correctamente el mensaje")
+                sys.exit()
+                
+        elif (msg == "DENIED"):
+            print("El servidor de registro ha denegado la solicitud de inicio de comunicación")
             sys.exit()
+                
+    def unirse_al_espectaculo(self):
         
+        msg = "<SOLICITUD>"
+        self.sendEngine(msg)
+        
+        while ((msg := self.readEngine()) == ""):
+            pass
+        
+        if (msg == "OK"):
+            msg = self.id + "." + self.token
+            msg = self.package_message(self, msg)
+            self.sendEngine(msg)
+            
+            while ((msg := self.readEngine()) == ""):
+                pass
+            
+            if (msg == "OK"):
+                #Nos quedamos a la espera de órdenes
+                while ((msg := self.readEngine()) == ""):
+                    pass
+                
+                msg = msg.split(ETX)
+                lrc = msg[1]
+                msg = msg[0].split(STX)
+                msg = msg[1]
+                
+                
+                
+                if (self.comprobarLRC(lrc) and msg == "Nos movemos"):
+                    print("Nos movemos")
+                    #Aquí iría el código para mover el drone
+                    self.sendEngine("OK")
+                    #Aquí comenzaremos con el consumo y produccion en kafka.
+                    
+                else:
+                    self.sendEngine("DENIED")
+                    sys.exit()
+
+        elif (msg == "DENIED"):
+            print("El servidor de Engine ha denegado la solicitud de inicio de comunicación")
+            sys.exit()
+            
         
     
     def main(self):
@@ -89,12 +175,21 @@ class AD_Drone:
         ADDR_Registry, ADDR_Engine, Server_Kafka, Port_Kafka = self.procesarArgumentos()
         
         client_registry.connect(ADDR_Registry)
-        #client_engine.connect(ADDR_Engine)
+        
     
         print("Conexión establecida con el servidor de registro")
         print("Conexión establecida con el servidor de Engine")
         
         self.registrarDrone(self)
+        self.id = self.token.split(".")[0]
+        self.token = self.token.split(".")[1]
+        print("ID: ", self.id)
+        print("Token: ", self.token)
+        
+        
+        client_engine.connect(ADDR_Engine)
+        self.unirse_al_espectaculo(self)
+        
         
         client_registry.close()
         client_engine.close()

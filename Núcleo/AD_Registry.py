@@ -4,6 +4,7 @@ import secrets
 import mysql.connector
 import string
 import sys
+import time
 
 
 HEADER = 64
@@ -54,7 +55,7 @@ class AD_Registry:
         
         msg = str(id) + "." + token
         msg = self.package_message(self, msg)
-        conn_drone.send(msg.encode(FORMAT))
+        self.sendDrone(self, conn_drone, msg)
         print("Drone registrado correctamente")
         print("ID: ", id)
         print("Token: ", token)
@@ -118,38 +119,83 @@ class AD_Registry:
         print ("LRC: ", lrc)
         return lrc
 
+    def sendDrone(self, conn, msg):
+        conn.send(msg.encode(FORMAT))
+        print("Mensaje enviado al drone", msg)
+        
+    def readDrone(self, conn):
+        msg = conn.recv(2048).decode(FORMAT)
+        print("Mensaje recibido del drone", msg)
+        return msg
+    
+        
+    def recibirMensaje(self, conn):
+        
+        while ((msg := self.readDrone(self, conn)) == ""):
+            pass
+                
+        if (msg == "<SOLICITUD>"):
+            self.sendDrone(self, conn, "OK")
+            
+            while ((msg := self.readDrone(self, conn)) == ""):
+                pass
+            
+            msg = msg.split(ETX)
+            lrc = msg[1]
+            msg = msg[0].split(STX)
+            msg = msg[1]
+            
+            if (msg == FIN):
+                return FIN
+            else:
+                #comprobar LRC, el mensaje es correcto si el LRC es igual al que se ha calculado
+                if (self.comprobarLRC(msg) == ord(lrc)):
+                    print("LRC correcto")
+                    self.sendDrone(self, conn, "OK")
+                    return msg
+                else:
+                    print("LRC incorrecto")
+                    self.sendDrone(self, conn, "DENIED")
+                    return "ERROR"
+        else:
+            self.sendDrone(self, conn, "DENIED")
+                    
+            
+            
     def handle_client(self, conn, addr):
         print(f"[NUEVA CONEXION] {addr} connected.")
 
         connected = True
         while connected:
-            msg = conn.recv(2048).decode(FORMAT)
-            print("Mensaje recibido del drone: ", msg)
-            msg = msg.split(ETX)
-            lrc = msg[1]
-            msg = msg[0].split(STX)
-            
-            print("MSG", msg[1])
-            print("LRC", lrc)
-            print
-            #comprobar LRC, el mensaje es correcto si el LRC es igual al que se ha calculado
-            if (self.comprobarLRC(msg[1]) == ord(lrc)):
-                print("LRC correcto")
-            else:
-                print("LRC incorrecto")
+           
+            resp = self.recibirMensaje(self, conn)
+            print("Respuesta: ", resp)
+            if (resp == FIN):
                 connected = False
                 break
             
-            opcion = msg[1].split(".")[0]
-            print("Opcion: ", opcion)
-            
-            if (msg[1] == FIN):
-                connected = False
-                break
-            elif (opcion == "1" or opcion == "2" or opcion == "3"):
-                self.dataBase(self, msg[1], conn) 
-                connected = False #Esto no se si hace falta pero es para salir del bucle por ahora.
-                         
+            opcion = resp.split(".")[0]
+        
+            if (opcion == "1" or opcion == "2" or opcion == "3"):
+                self.dataBase(self, resp, conn) 
+                
+                while ((msg := self.readDrone(self, conn)) == ""):
+                    pass
+                
+                if (msg == "OK"):
+                    
+                    while ((msg := self.readDrone(self, conn)) == ""):
+                        pass
+                    
+                    if (msg == "EOT"):
+                        connected = False #Esto no se si hace falta pero es para salir del bucle por ahora.
+                        break
+                
+                elif (msg == "DENIED"):
+                    print("El servidor de registro no ha recibido correctamente el mensaje")
+                    connected = False
+                    break
+                
         print("ADIOS.")
         conn.close()
         
