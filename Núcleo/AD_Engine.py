@@ -138,9 +138,15 @@ class AD_Engine:
                 
         self.recibir_mensaje(self.figures)
         
+    def calculate_lrc(self, data):
+        lrc = 0
+        for i in range(len(data)):
+            lrc = lrc ^ ord(data[i])
+        return lrc
+    
     def readDrone(self,conn):
         msg = conn.recv(2048).decode(FORMAT)
-        print("Mensaje recibido del servidor de registro:", msg)
+        print("Mensaje recibido del servidor de drone:", msg)
         return msg
 
     def readRegistry(self,conn):
@@ -154,7 +160,7 @@ class AD_Engine:
     
     def sendDrone(self, conn, msg):
         conn.send(msg.encode(FORMAT))
-        print("Mensaje enviado al servidor de registro: ", msg)
+        print("Mensaje enviado al servidor de drone: ", msg)
     
     def comprobarLRC(self, msg):
         lrc = 0
@@ -169,19 +175,37 @@ class AD_Engine:
         pass
     
     def manejoDrone(self, conn, figuras, id):
-        
-        
-        
+           
         for figura in figuras:
             if figura == figuras[-1]:
                 last = True
+                return last
             
-            if (id>self.maxdrones):
+            if (id>self.max_drones):
                 self.sendDrone(conn, self.package_message("No participas en la figura"))
+                while((msg := self.readDrone(conn)) == ""):
+                    pass
+                if (msg == "OK"):
+                    pass
+                    #El dron ha recibido el mensaje de que no participa y
+                    #se dispone a comenzar la comunicación kafka para volver a base
+                    #o a no moverse de no ser necesario si ya está en la base.
             else:
                 self.sendDrone(conn, self.package_message("Nos movemos"))
-                self.moveDrones(figura, id, last)
+                while((msg := self.readDrone(conn)) == ""):
+                    pass
                 
+                if (msg == "OK"):
+                    pass
+                    #El siguiente mensaje sera el que pasemos por kafka
+                    #creo que debería pasar primero la posición de destino
+                    #msg = ((str(id), datos_drone[id-1][1], datos_drone[id-1][2]))
+                    #Pero en este caso no tengo que pasar la id ya que el drone ya la tiene almacenada.
+                    #El dron ha recibido el mensaje de nos movemos y se dispone a comenzar la comunicación kafka.
+                    #self.moveDrones(figura, id, last)
+                    #El mensaje nos movemos se envía una vez por cada figura,
+                    #por lo que tendré que recibir un nos movemos por cada figura, y enviar
+                    #su correspondiente OK
 
                 
                 
@@ -227,6 +251,7 @@ class AD_Engine:
     def handle_client(self, conn, addr, figuras):
         
         print(f"[NUEVA CONEXION] {addr} conectado.")
+        last = False
         
         connected = True
         while connected:
@@ -236,8 +261,12 @@ class AD_Engine:
             if (id == "ERROR"):
                 connected = False
                 break
+            elif (last == True):
+                connected = False
+                break
             else:
-                self.manejoDrone(conn, figuras, id)
+                last = self.manejoDrone(conn, figuras, id)
+                connected = False
                 
     
     def main(self):

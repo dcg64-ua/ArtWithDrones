@@ -160,13 +160,16 @@ class AD_Drone:
                     self.sendEngine("OK")
                     #Aquí comenzaremos con el consumo y produccion en kafka.
                     
-                else:
-                    self.sendEngine("DENIED")
-                    sys.exit()
+                elif(msg == "No participas en la figura"):
+                    self.sendEngine("OK")
+                    #Comenzaremos con al comunicación kafka para
+                    #volver a la base o no movernos si ya estamos en la base.
+                    
 
         elif (msg == "DENIED"):
             print("El servidor de Engine ha denegado la solicitud de inicio de comunicación")
             sys.exit()
+            
             
         
     
