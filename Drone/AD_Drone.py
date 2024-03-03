@@ -166,10 +166,46 @@ class AD_Drone:
         elif (msg == "DENIED"):
             print("El servidor de registro ha denegado la solicitud de inicio de comunicación")
             sys.exit()
+            
+    def calculateMovement(self):
+        
+        target_pos = (self.posDestX, self.posDestY)
+        current_pos = (self.posX, self.posY)
+        
+        x_diff = target_pos[0] - current_pos[0]
+        y_diff = target_pos[1] - current_pos[1]
+        
+        if x_diff > 0 and y_diff > 0:
+            current_pos = (current_pos[0] + 1, current_pos[1] + 1)
                 
-    def moveDrone(self):
-        msg = self.kafkaConsumer(self)
-        print("Mensaje recibido: ", msg)
+        elif x_diff > 0:
+            current_pos = (current_pos[0] + 1, current_pos[1])
+            
+        elif y_diff > 0:
+            current_pos = (current_pos[0], current_pos[1] + 1)
+            
+        elif x_diff < 0 and y_diff < 0 and current_pos[0] > 0 and current_pos[1] > 0:
+            current_pos = (current_pos[0] - 1, current_pos[1] - 1)
+            
+        elif x_diff < 0 and current_pos[0] > 0:
+            current_pos = (current_pos[0] - 1, current_pos[1])
+            
+        elif y_diff < 0 and current_pos[1] > 0:
+            current_pos = (current_pos[0], current_pos[1] - 1)
+        else:
+            current_pos = (-1,-1)
+            self.kafkaProducer(str(current_pos))
+            
+        
+        if current_pos[0] == 0 and current_pos[1] != 0:
+            current_pos = (current_pos[0] + 1, current_pos[1])
+        elif current_pos[1] == 0 and current_pos[0] != 0:
+            current_pos = (current_pos[0], current_pos[1] + 1)
+        
+        self.kafkaProducer(self, str(current_pos))  
+    
+    def getPos(self, msg):
+        
         msg = msg.split(",")
         msg[0] = msg[0].split("(")[1]
         msg[1] = msg[1].split(")")[0]
@@ -179,8 +215,46 @@ class AD_Drone:
         x= int(x)
         y = int(y)
         
+        return x, y
+                
+    def moveDrone(self):
+        msg = self.kafkaConsumer(self)
+        
+        x, y = self.getPos(self, msg)
+        
         self.posDestX = x
         self.posDestY = y
+        
+        msg = self.kafkaConsumer(self)
+        x, y = self.getPos(self, msg)
+        
+        self.posX = x
+        self.posY = y
+        
+        self.calculateMovement(self)
+        
+        
+        
+    def delivery_report(self, err, msg):
+        
+        if err is not None:
+            print(f'Error al enviar mensaje: {err}')
+        else:
+            print(f'Mensaje enviado a {msg.topic()} [{msg.partition()}]')
+        
+    def kafkaProducer(self, msg):
+        err = None
+        conf = {'bootstrap.servers': self.Server_Kafka + ":" + str(self.Port_Kafka)}
+        producer = Producer(conf)
+        
+        msg = str(msg)
+        
+        if msg: 
+            topic = "drones"
+            key = None
+            msg_bytes = msg.encode('utf-8')
+            producer.produce(topic, key=key, value=msg_bytes, callback=self.delivery_report(self, err, msg), partition = int(self.id))
+            producer.flush()
         
     
     def unirse_al_espectaculo(self):  

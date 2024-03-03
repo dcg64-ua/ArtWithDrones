@@ -258,14 +258,58 @@ class AD_Engine:
             
             print("Mensaje enviado al topic: ", topic, " con el mensaje: ", msg, " y la partición: ", id)
             producer.flush()
+            
+    def kafkaConsumer(self, id):
+        conf = {'bootstrap.servers': self.ip_kafka + ":" + str(self.puerto_kafka),
+                'group.id': "my-group",
+                'auto.offset.reset': 'earliest'}
+        
+        consumer = Consumer(conf)
+        
+        tp = TopicPartition("drones", int(id))
+        print("Partición: drones", int(id))
+        consumer.assign([tp])
+        mensaje = ""
+        
+        while True:
+            msg = consumer.poll(1.0)
+            
+            if msg is None:
+                print("La partición está vacía")
+                continue
+            if msg.error():
+                if msg.error().code() == KafkaError._PARTITION_EOF:
+                    continue
+                else:
+                    print(msg.error())
+                    break
+            if msg.value() is not None:
+                msg = msg.value().decode('utf-8')
+                print('Received message: {}'.format(msg))
+                consumer.commit()
+                break
+            
+        consumer.close()
+        
+        return msg
     
-    def moveDrones(self, figura, posDest, id, last, drone_map):
+    def moveDrones(self, figura, pos, posDest, id, last, drone_map):
         self.kafkaProducer(posDest, id)
+        
+        self.kafkaProducer(pos, id)
+        time.sleep(1)
+        # Ahora el dron va a comenzar a mandarnos mensajes con los movimientos a ejecutar.
+        while (pos != posDest):
+            pos = self.kafkaConsumer(id)
+            print("Posición actual del dron: ", pos)
+            
         
     
     def manejoDrone(self, conn, figuras, id, drone_map):
             
         last = False
+        
+        pos = ('-1', '-1')
         
         for figura in figuras:
             datos_drone = figura[1]
@@ -280,7 +324,7 @@ class AD_Engine:
                 
                 if (msg == "OK"):
                     posDest = (-1, -1)
-                    self.moveDrones(figura, posDest, id, last, drone_map)
+                    self.moveDrones(figura, pos, posDest, id, last, drone_map)
                     
                 else:
                     print("El dron no ha recibido el mensaje de no participas")
@@ -295,7 +339,7 @@ class AD_Engine:
                 
                 if (msg == "OK"):
                     posDest = (datos_drone[id-1][1], datos_drone[id-1][2])
-                    self.moveDrones(figura, posDest, id, last, drone_map)
+                    self.moveDrones(figura, pos, posDest, id, last, drone_map)
             
                 else:
                     print("El dron no ha recibido el mensaje de nos movemos")

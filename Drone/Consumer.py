@@ -15,8 +15,8 @@ conf = {'bootstrap.servers': "localhost" + ":" + str(9092),
 
 consumer = Consumer(conf)
 
-tp = TopicPartition("drones", int(2))
-print("Partición: drones", int(2))
+tp = TopicPartition("drones", int(1))
+print("Partición: drones", int(1))
 consumer.assign([tp])
 mensaje = ""
 
