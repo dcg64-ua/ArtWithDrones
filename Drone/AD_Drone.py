@@ -1,6 +1,12 @@
 import socket
 import sys
 import time
+import threading
+import secrets
+import string
+from confluent_kafka import Producer, Consumer, KafkaError, TopicPartition
+from confluent_kafka.admin import AdminClient, NewTopic
+from confluent_kafka import KafkaError
 
 HEADER = 64
 PORT = 5050
@@ -40,6 +46,41 @@ class AD_Drone:
             sys.exit()
         
         return ADDR_Registry, ADDR_Engine, Server_Kafka, Port_Kafka
+    
+    def kafkaConsumer(self):
+        conf = {'bootstrap.servers': self.Server_Kafka + ":" + str(self.Port_Kafka),
+                'group.id': "my-group",
+                'auto.offset.reset': 'earliest'}
+        
+        consumer = Consumer(conf)
+        
+        tp = TopicPartition("drones", int(self.id))
+        print("Partición: drones", int(self.id))
+        consumer.assign([tp])
+        mensaje = ""
+        
+        while True:
+            msg = consumer.poll(1.0)
+            
+            if msg is None:
+                print("La partición está vacía")
+                continue
+            if msg.error():
+                if msg.error().code() == KafkaError._PARTITION_EOF:
+                    continue
+                else:
+                    print(msg.error())
+                    break
+            if msg.value() is not None:
+                msg = msg.value().decode('utf-8')
+                print('Received message: {}'.format(msg))
+                consumer.commit()
+                break
+            
+        consumer.close()
+        
+        return msg
+        
     
     def calculate_lrc(data):
         lrc = 0
@@ -126,9 +167,23 @@ class AD_Drone:
             print("El servidor de registro ha denegado la solicitud de inicio de comunicación")
             sys.exit()
                 
-    def unirse_al_espectaculo(self):
+    def moveDrone(self):
+        msg = self.kafkaConsumer(self)
+        print("Mensaje recibido: ", msg)
+        msg = msg.split(",")
+        msg[0] = msg[0].split("(")[1]
+        msg[1] = msg[1].split(")")[0]
+        x = int(msg[0].strip("'"))
+        y = msg[1].strip("'")
+        y = y.split("'")[1]
+        x= int(x)
+        y = int(y)
         
+        self.posDestX = x
+        self.posDestY = y
         
+    
+    def unirse_al_espectaculo(self):  
         
         msg = "<SOLICITUD>"
         self.sendEngine(msg)
@@ -147,7 +202,7 @@ class AD_Drone:
             if (msg == "OK"):
                 #Nos quedamos a la espera de órdenes
                 
-                while (msg != "FIN"):
+                while True:
             
                     while ((msg := self.readEngine()) == ""):
                         pass
@@ -156,23 +211,29 @@ class AD_Drone:
                     lrc = msg[1]
                     msg = msg[0].split(STX)
                     msg = msg[1]
-                    
+                        
                     if (self.comprobarLRC(lrc) and msg == "Nos movemos"):
                         #Aquí iría el código para mover el drone
                         #Recibiré la posicion de destino y la guardaré en una variable self.
                         #Los movimientos los quiero hacer de uno en uno, de modo que, el drone
                         #Envia el movimiento a engine, este realiza el movimiento y me devuelve
                         #Un mensaje de confirmación o algo así, aunque en esto dudo.
-                        self.sendEngine("OK")
-                        
-                        
+                        self.sendEngine("OK")                  
+                        self.moveDrone(self)
+                            
+                            
                     elif(msg == "No participas en la figura"):
                         self.sendEngine("OK")
-                                             
+                        self.moveDrone(self)
+                                                
                         #Aquí comenzaremos con el consumo y produccion en kafka.
                         #Comenzaremos con al comunicación kafka para
                         #volver a la base o no movernos si ya estamos en la base.
-            
+                        
+                    elif(msg == "FIN"):
+                        self.sendEngine("OK")
+                        sys.exit()
+                
             else:
                 print("El servidor de Engine no ha recibido correctamente el mensaje")
                 sys.exit()
@@ -186,7 +247,7 @@ class AD_Drone:
     
     def main(self):
         
-        ADDR_Registry, ADDR_Engine, Server_Kafka, Port_Kafka = self.procesarArgumentos()
+        ADDR_Registry, ADDR_Engine, self.Server_Kafka, self.Port_Kafka = self.procesarArgumentos()
         
         client_registry.connect(ADDR_Registry)
         
