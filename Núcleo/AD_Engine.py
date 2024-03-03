@@ -3,6 +3,10 @@ import socket
 import threading
 import mysql.connector
 import time
+from confluent_kafka import Producer, Consumer, KafkaError, TopicPartition
+from confluent_kafka.admin import AdminClient, NewTopic
+import tkinter as tk
+
 
 HEADER = 64
 FORMAT = 'utf-8'
@@ -15,6 +19,68 @@ class AD_Engine:
     
     max_drones = 0
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    class DroneMap(tk.Tk):
+        def __init__(self):
+            super().__init__()
+            self.title("Mapa de Drones")
+
+            self.canvas = tk.Canvas(self, width=500, height=500, bg='white')
+            self.canvas.pack()
+
+            self.cell_width = 500 // 21
+            self.cell_height = 500 // 21
+            self.dronesmap = {}
+
+            for row in range(1, 22):
+                for col in range(1, 22):
+                    x1 = (col - 1) * self.cell_width
+                    y1 = (row - 1) * self.cell_height
+                    x2 = x1 + self.cell_width
+                    y2 = y1 + self.cell_height
+                    self.canvas.create_rectangle(x1, y1, x2, y2, fill='white', outline='black')
+
+            for i in range(1, 21):
+                y = i * self.cell_height + self.cell_height // 2
+                self.canvas.create_text(5, y, text=str(i), anchor='w')
+
+            for i in range(1, 21):
+                x = i * self.cell_width + self.cell_width // 2
+                self.canvas.create_text(x, 5, text=str(i), anchor='n')
+        
+        
+
+        def update_drone_position(self, row, col, id): 
+            
+            x1 = int(self.dronesmap[id][1]) * self.cell_width
+            y1 = int(self.dronesmap[id][2]) * self.cell_height
+            x2 = x1 + self.cell_width
+            y2 = y1 + self.cell_height
+            
+            drone_x = row * self.cell_width
+            drone_y = col * self.cell_height
+            self.canvas.delete("drone" + "." + str(id))
+            self.canvas.create_rectangle(drone_x, drone_y, drone_x + self.cell_width, drone_y + self.cell_height, fill='red', tags=("drone" + "." + str(id)))
+            self.dronesmap[id] = (id, row, col)
+            print("Drones_map en para la id " + str(id) + "es: " + str(self.dronesmap[id]))
+        
+        def add_drone(self, id):
+            drone_x = 1 * self.cell_width
+            drone_y = 1 * self.cell_height
+            self.canvas.create_rectangle(drone_x, drone_y, drone_x + self.cell_width, drone_y + self.cell_height, fill='red', tags=("drone" + "." + str(id)))
+            print("El id es: ", id)
+            self.dronesmap[id] = (id, 1, 1)
+            
+            # Eliminar el rectángulo rojo después de 5 segundos
+            
+            
+        def positionReached(self, id):
+            drone_x = self.dronesmap[id][1] * self.cell_width
+            drone_y = self.dronesmap[id][2] * self.cell_height
+            
+            self.canvas.delete("drone" + "." + str(id))
+            self.canvas.create_rectangle(drone_x, drone_y, drone_x + self.cell_width, drone_y + self.cell_height, fill='green', tags=("drone" + "." + str(id)))
+            
     
     def package_message(self, data):
         lrc = self.calculate_lrc(data)
@@ -100,7 +166,7 @@ class AD_Engine:
             print(f"Error al leer los datos de los drones: {str(e)}")
             
     
-    def recibir_mensaje(self, figura):
+    def recibir_mensaje(self, figura, drone_map):
         
         ADDR = (SERVER, self.puerto_escucha)
             
@@ -115,7 +181,7 @@ class AD_Engine:
             conn, addr = self.server.accept()
             CONEX_ACTIVAS = threading.active_count()
             if (CONEX_ACTIVAS <= self.max_drones): 
-                thread = threading.Thread(target=self.handle_client, args=(conn, addr, figura))
+                thread = threading.Thread(target=self.handle_client, args=(conn, addr, figura, drone_map))
                 thread.start()
                 print(f"[CONEXIONES ACTIVAS] {CONEX_ACTIVAS}")
                 print("CONEXIONES RESTANTES PARA CERRAR EL SERVICIO", self.max_drones-CONEX_ACTIVAS)
@@ -126,7 +192,7 @@ class AD_Engine:
                 conn.close()
                 CONEX_ACTUALES = threading.active_count()-1
                 
-    def start(self):
+    def start(self, drone_map):
         file_path = "../Drones.txt"
         self.figures = []
         self.get_drones_from_file(file_path)
@@ -136,7 +202,7 @@ class AD_Engine:
             if(len(figura[1]) > self.max_drones):
                 self.maxdrones = len(figura[1])
                 
-        self.recibir_mensaje(self.figures)
+        self.recibir_mensaje(self.figures, drone_map)
         
     def calculate_lrc(self, data):
         lrc = 0
@@ -171,12 +237,31 @@ class AD_Engine:
         print ("LRC: ", lrc)
         return lrc
     
-    def moveDrones(self, figura, id, last):
+    def delivery_report(self, err, msg):
+        
+        if err is not None:
+            print(f'Error al enviar mensaje: {err}')
+        else:
+            print(f'Mensaje enviado a {msg.topic()} [{msg.partition()}]')
+    
+    def kafkaProducer(self, msg, id):
+        conf = {'bootstrap.servers': self.ip_kafka + ":" + str(self.puerto_kafka)}
+        producer = Producer(conf)
+        
+        msg = str(msg)
+        
+        if msg:
+            topic = "drones"
+            key = None
+            producer.produce(topic, key, value=msg, callback=self.delivery_report, partition = id)
+    
+    def moveDrones(self, figura, id, last, drone_map):
         pass
     
-    def manejoDrone(self, conn, figuras, id):
-           
+    def manejoDrone(self, conn, figuras, id, drone_map):
+            
         for figura in figuras:
+            datos_drone = figura[1]
             if figura == figuras[-1]:
                 last = True
                 return last
@@ -185,27 +270,28 @@ class AD_Engine:
                 self.sendDrone(conn, self.package_message("No participas en la figura"))
                 while((msg := self.readDrone(conn)) == ""):
                     pass
+                
                 if (msg == "OK"):
-                    pass
-                    #El dron ha recibido el mensaje de que no participa y
-                    #se dispone a comenzar la comunicación kafka para volver a base
-                    #o a no moverse de no ser necesario si ya está en la base.
+                    posDest = (-1, -1)
+                    self.moveDrones(figura, id, last, drone_map)
+                    
+                else:
+                    print("El dron no ha recibido el mensaje de no participas")
+                    break
+                
+                
             else:
                 self.sendDrone(conn, self.package_message("Nos movemos"))
                 while((msg := self.readDrone(conn)) == ""):
                     pass
                 
                 if (msg == "OK"):
-                    pass
-                    #El siguiente mensaje sera el que pasemos por kafka
-                    #creo que debería pasar primero la posición de destino
-                    #msg = ((str(id), datos_drone[id-1][1], datos_drone[id-1][2]))
-                    #Pero en este caso no tengo que pasar la id ya que el drone ya la tiene almacenada.
-                    #El dron ha recibido el mensaje de nos movemos y se dispone a comenzar la comunicación kafka.
-                    #self.moveDrones(figura, id, last)
-                    #El mensaje nos movemos se envía una vez por cada figura,
-                    #por lo que tendré que recibir un nos movemos por cada figura, y enviar
-                    #su correspondiente OK
+                    posDest = (datos_drone[id-1][1], datos_drone[id-1][2])
+                    self.moveDrones(figura, id, last, drone_map)
+            
+                else:
+                    print("El dron no ha recibido el mensaje de nos movemos")
+                    break
 
                 
                 
@@ -248,7 +334,7 @@ class AD_Engine:
             
             
             
-    def handle_client(self, conn, addr, figuras):
+    def handle_client(self, conn, addr, figuras, drone_map):
         
         print(f"[NUEVA CONEXION] {addr} conectado.")
         last = False
@@ -265,13 +351,18 @@ class AD_Engine:
                 connected = False
                 break
             else:
-                last = self.manejoDrone(conn, figuras, id)
+                last = self.manejoDrone(conn, figuras, id, drone_map)
                 connected = False
                 
     
     def main(self):
         
         self.procesar_argumentos()
-        self.start()
+        #self.start()
+        drone_map = self.DroneMap()
+        server_thread = threading.Thread(target=self.start, args =(drone_map,))
+        server_thread.start()
+        
+        drone_map.mainloop()
         
 AD_Engine().main()

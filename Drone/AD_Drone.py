@@ -128,6 +128,8 @@ class AD_Drone:
                 
     def unirse_al_espectaculo(self):
         
+        
+        
         msg = "<SOLICITUD>"
         self.sendEngine(msg)
         
@@ -144,27 +146,36 @@ class AD_Drone:
             
             if (msg == "OK"):
                 #Nos quedamos a la espera de órdenes
-                while ((msg := self.readEngine()) == ""):
-                    pass
                 
-                msg = msg.split(ETX)
-                lrc = msg[1]
-                msg = msg[0].split(STX)
-                msg = msg[1]
-                
-                
-                
-                if (self.comprobarLRC(lrc) and msg == "Nos movemos"):
-                    print("Nos movemos")
-                    #Aquí iría el código para mover el drone
-                    self.sendEngine("OK")
-                    #Aquí comenzaremos con el consumo y produccion en kafka.
+                while (msg != "FIN"):
+            
+                    while ((msg := self.readEngine()) == ""):
+                        pass
                     
-                elif(msg == "No participas en la figura"):
-                    self.sendEngine("OK")
-                    #Comenzaremos con al comunicación kafka para
-                    #volver a la base o no movernos si ya estamos en la base.
+                    msg = msg.split(ETX)
+                    lrc = msg[1]
+                    msg = msg[0].split(STX)
+                    msg = msg[1]
                     
+                    if (self.comprobarLRC(lrc) and msg == "Nos movemos"):
+                        #Aquí iría el código para mover el drone
+                        #Recibiré la posicion de destino y la guardaré en una variable self.
+                        #Los movimientos los quiero hacer de uno en uno, de modo que, el drone
+                        #Envia el movimiento a engine, este realiza el movimiento y me devuelve
+                        #Un mensaje de confirmación o algo así, aunque en esto dudo.
+                        self.sendEngine("OK")
+                        
+                        
+                    elif(msg == "No participas en la figura"):
+                        self.sendEngine("OK")
+                                             
+                        #Aquí comenzaremos con el consumo y produccion en kafka.
+                        #Comenzaremos con al comunicación kafka para
+                        #volver a la base o no movernos si ya estamos en la base.
+            
+            else:
+                print("El servidor de Engine no ha recibido correctamente el mensaje")
+                sys.exit()
 
         elif (msg == "DENIED"):
             print("El servidor de Engine ha denegado la solicitud de inicio de comunicación")
