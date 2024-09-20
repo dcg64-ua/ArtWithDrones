@@ -15,6 +15,9 @@ client_registry = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client_engine = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 class AD_Drone:
+    
+
+
     def __init__(self, server_kafka, port_kafka, id):
         self.Server_Kafka = server_kafka
         self.Port_Kafka = port_kafka

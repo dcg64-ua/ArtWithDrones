@@ -61,8 +61,8 @@ class AD_Engine:
             print("Drones_map en para la id " + str(id) + "es: " + str(self.dronesmap[id]))
         
         def add_drone(self, id):
-            drone_x = 1 * self.cell_width
-            drone_y = 1 * self.cell_height
+            drone_x = -1 * self.cell_width
+            drone_y = -1 * self.cell_height
             self.canvas.create_rectangle(drone_x, drone_y, drone_x + self.cell_width, drone_y + self.cell_height, fill='red', tags=("drone" + "." + str(id)))
             print("El id es: ", id)
             self.dronesmap[id] = (id, -1, -1)
@@ -186,11 +186,13 @@ class AD_Engine:
         self.get_drones_from_file(file_path)
         print(self.figures)
         maxdrones = 0
-        
         for figura in self.figures:
             if len(figura[1]) > maxdrones:
-                self.max_drones = len(figura[1])
+                maxdrones = len(figura[1])
              
+
+        self.max_drones_figura = maxdrones
+
     def start(self, drone_map):
         file_path = "../Drones.txt"
         self.figures = []
@@ -198,7 +200,7 @@ class AD_Engine:
         print(self.figures)
         
         for figura in self.figures:
-            if len(figura[1]) > self.max_drones:
+            if len(figura[1]) > self.max_drones_figura:
                 self.maxdrones = len(figura[1])
                 
         self.recibir_mensaje(self.figures, drone_map)
@@ -252,7 +254,7 @@ class AD_Engine:
             topic = "drones"
             key = None
             msg_bytes = msg.encode('utf-8')
-            producer.produce(topic, key = key, value = msg_bytes, callback=self.delivery_report, partition = id)
+            producer.produce(topic, key=key, value=msg_bytes, callback=self.delivery_report, partition=id)
             
             print("Mensaje enviado al topic: ", topic, " con el mensaje: ", msg, " y la partición: ", id)
             producer.flush()
@@ -283,7 +285,6 @@ class AD_Engine:
                     break
             if msg.value() is not None:
                 msg = msg.value().decode('utf-8')
-                print(f'Received message: {msg}')
                 consumer.commit()
                 break
             
@@ -292,7 +293,6 @@ class AD_Engine:
         return msg
         
     def getPos(self, msg):
-        print("Mensaje recibido: ", msg)
         msg = str(msg)
         
         if "'" in msg:
@@ -305,31 +305,22 @@ class AD_Engine:
         x = int(msg[0])
         y = int(msg[1])
         
-        print("Posición x: ", x)
-        print("Posición y: ", y)
-        
         return x, y
 
     def moveDrones(self, conn, figura, pos, posDest, id, last, drone_map):
         self.kafkaProducer(posDest, id)
         self.kafkaProducer(pos, id)
-        print("Posición actual del dron: ", pos)
-        print("Posición destino del dron: ", posDest)
         
         if drone_map.dronesmap.get(id) is None:
             drone_map.add_drone(id)
             
         posDest = self.getPos(posDest)
         pos = self.getPos(pos)
-        print("Posición actual del dron: ", pos)
-        print("Posición destino del dron: ", posDest)
         time.sleep(1)
         
         while pos != posDest:
             pos = self.kafkaConsumer(id)
             pos = self.getPos(pos)
-            print("Posición actual del dron: ", pos)
-            print("Posición destino del dron: ", posDest)
             drone_map.update_drone_position(pos[0], pos[1], id)
             self.kafkaProducer(pos, id)
             time.sleep(1)
@@ -344,9 +335,10 @@ class AD_Engine:
             pass
         if msg == "ARRIVAL":
             pass
+        
         self.barrier.wait()
         print("Todos los drones han llegado a su destino. Procediendo con la tarea...")
-        time.sleep(5)
+        time.sleep(5)  # Simulación de una tarea que lleva tiempo
         self.sendDrone(conn, self.package_message("CONTINUAR"))
 
     def manejoDrone(self, conn, figuras, id, drone_map):
@@ -357,8 +349,11 @@ class AD_Engine:
             datos_drone = figura[1]
             if figura == figuras[-1]:
                 last = True
+
+            #if figura != figuras[0]:
+             #   self.barrier = threading.Barrier(len(datos_drone))
             
-            if id > self.max_drones or id > len(datos_drone):
+            if id > self.max_drones_figura or id > len(datos_drone):
                 self.sendDrone(conn, self.package_message("No participas en la figura"))
                 while (msg := self.readDrone(conn)) == "":
                     pass
@@ -459,7 +454,7 @@ class AD_Engine:
         self.stop_event.set()
         self.server.close()
         print("Servidor cerrado")
-        for id in range(1, self.max_drones + 1):
+        for id in range(1, self.max_drones_figura + 1):
             self.kafkaProducer("STOP", id)
         
     def broadcast_message(self, message):
@@ -472,15 +467,16 @@ class AD_Engine:
             if command.strip().upper() == "S":
                 self.stop()
                 break
-    
+
     def main(self):
         self.stop_flag = False
         self.drone_connections = []
         self.procesar_argumentos()
         drone_map = self.DroneMap()
         self.readDrones()
-        print ("Max drones: ", self.max_drones)
-        self.barrier = threading.Barrier(self.max_drones)  # Inicializa la barrera
+        print("Max drones: ", self.max_drones)
+        
+        self.barrier = threading.Barrier(self.max_drones_figura)  # Inicializa la barrera
         
         server_thread = threading.Thread(target=self.start, args=(drone_map,))
         server_thread.start()
@@ -488,7 +484,6 @@ class AD_Engine:
         stop_thread = threading.Thread(target=self.listen_for_stop)
         stop_thread.start()
         
-        
         drone_map.mainloop()
-        
+
 AD_Engine().main()
